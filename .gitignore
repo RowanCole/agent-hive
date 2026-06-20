@@ -1,0 +1,59 @@
+# ── 环境与密钥 ──
+.env
+.env.local
+.env.*.local
+
+# ── Python 字节码 / 缓存 ──
+# 双保险：匹配目录 + 所有同名字节码文件夹
+__pycache__
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+dist/
+build/
+
+# ── 虚拟环境 ──
+.venv/
+venv/
+env/
+
+# ── 运行时数据 ──
+.code-agent/
+!code-agent/.gitkeep
+
+# ── SQLite 数据库 ──
+*.db
+*.sqlite
+*.sqlite3
+
+# ── 输出产物 ──
+plots/
+output/
+
+# ── 系统文件 ──
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── IDE / 编辑器 ──
+.vscode
+.vscode/
+.idea
+.idea/
+*.swp
+*.swo
+*~
+.vs/
+*.sublime-*
+
+# ── 日志 ──
+*.log
+logs/
+
+# ── 测试 / 临时文件 ──
+test.txt
+*.tmp
+*.temp
