@@ -19,7 +19,7 @@
 - [核心特性](#核心特性)
 - [项目结构](#项目结构)
 - [配置](#配置)
-- [作为框架使用](#作为框架使用)
+- [公共 API 使用文档](#公共-api-使用文档)
 - [MCP 服务器](#mcp-服务器)
 - [依赖](#依赖)
 - [路线图](#路线图)
@@ -51,11 +51,14 @@
 ### 安装
 
 ```bash
-# 方式一：直接安装依赖
-pip install -r requirements.txt
+# 方式一：从 Git 安装（推荐，可直接导入使用）
+pip install git+https://gitee.com/Rowancole/agent-hive.git
 
-# 方式二：以包形式安装（推荐，可导入使用）
+# 方式二：以包形式安装（本地开发）
 pip install -e .
+
+# 方式三：直接安装依赖
+pip install -r requirements.txt
 ```
 
 ### 配置
@@ -257,6 +260,244 @@ agent-hive/
 | `WORKER_LLM_MODEL` | `worker_llm_model` | `""` | WorkerAgent 独立模型名 |
 
 > WorkerAgent 不单独配置时，自动回退使用 MasterAgent 的配置。
+
+---
+
+## 公共 API 使用文档
+
+### 安装方式
+
+```bash
+pip install -e .     # 以包形式安装，之后可通过 import agent_hive 引入
+```
+
+### 导入入口
+
+所有公开 API 统一通过 `agent_hive` 包导出：
+
+```python
+from agent_hive import MasterAgent, WorkerAgent, BaseAgent, BaseState
+from agent_hive import AgentConfig
+from agent_hive import tools_list, get_tools
+```
+
+### API 概览
+
+| 类 / 函数 | 来源文件 | 用途 |
+|-----------|---------|------|
+| `AgentConfig` | [core/config.py](file:///c:/Users/sxl/Desktop/agent-hive/core/config.py) | 统一配置管理（LLM / 数据目录 / MCP） |
+| `MasterAgent` | [core/master_agent.py](file:///c:/Users/sxl/Desktop/agent-hive/core/master_agent.py) | 根节点 Agent，负责任务拆分、子 Agent 管理、结果汇总 |
+| `WorkerAgent` | [core/worker_agent.py](file:///c:/Users/sxl/Desktop/agent-hive/core/worker_agent.py) | 执行单元，可递归创建下层 Worker |
+| `BaseAgent` | [core/base_agent.py](file:///c:/Users/sxl/Desktop/agent-hive/core/base_agent.py) | 抽象基类，实现自定义 Agent 时继承 |
+| `BaseState` | [core/base_agent.py](file:///c:/Users/sxl/Desktop/agent-hive/core/base_agent.py) | LangGraph 状态定义，含 `task_plan` / `task_results` / `task_end` |
+| `tools_list` | [core/tools.py](file:///c:/Users/sxl/Desktop/agent-hive/core/tools.py) | 内置工具列表（`write_file` + `read_file`） |
+| `get_tools()` | [core/tools.py](file:///c:/Users/sxl/Desktop/agent-hive/core/tools.py) | 动态加载工具（含 MCP 远程工具） |
+| `MemoryManager` | [core/memory.py](file:///c:/Users/sxl/Desktop/agent-hive/core/memory.py) | SQLite 持久化单例（通常通过 agent.memory 间接访问） |
+
+---
+
+#### `AgentConfig` — 统一配置
+
+```python
+from agent_hive import AgentConfig
+
+config = AgentConfig(
+    openai_api_key="sk-xxx",                 # Master LLM API Key
+    openai_base_url="https://api.example.com/v1",
+    llm_model="gpt-4",
+    worker_agent_url="https://worker-api.com/v1",  # Worker 独立 LLM（可选）
+    worker_agent_key="sk-worker-key",
+    worker_llm_model="deepseek-chat",
+    data_dir=".code-agent",                         # 数据目录（含 memory.db）
+)
+
+# 内置属性路径
+config.data_path           # Path(".code-agent")
+config.mcp_servers_path    # Path(".code-agent/mcp_servers.json")
+config.memory_db_path      # Path(".code-agent/memory.db")
+config.checkpoint_db_path  # Path(".code-agent/checkpoints.db")
+```
+
+支持通过 `.env` 文件自动加载同名环境变量（`OPENAI_API_KEY`、`OPENAI_BASE_URL` 等）。
+
+---
+
+#### `MasterAgent` — 主入口
+
+```python
+from agent_hive import MasterAgent, AgentConfig, tools_list
+
+# 快速启动
+agent = MasterAgent(tools=tools_list)
+agent.chat()                           # 交互式对话
+
+# 单次执行
+messages = agent.run("创建一个 Python 斐波那契脚本")
+print(messages[-1].content)            # 打印最终报告
+
+# 指定 session_id 恢复上下文
+messages = agent.run("继续之前的工作", thread_id="a1b2c3d4")
+
+# 从 Checkpoint 断点续传
+agent.resume(thread_id="a1b2c3d4")
+
+# 自定义配置
+config = AgentConfig(llm_model="gpt-4o")
+agent = MasterAgent(tools=tools_list, config=config)
+agent.chat()
+```
+
+**关键方法：**
+
+| 方法 | 说明 |
+|------|------|
+| `run(task, thread_id="")` | 执行任务，返回消息列表（含最终报告） |
+| `chat(message="")` | 交互式对话；传参执行单轮，不传进入循环 |
+| `resume(thread_id="")` | 从 Checkpoint 断点恢复 |
+| `create_sub_agent(name, system_prompt)` | 创建子 WorkerAgent（LLM 自主调用） |
+| `publish_module_doc(title, content)` | 发布模块设计文档（跨 Agent 共享） |
+| `query_module_docs(keyword)` | 查询其他 Agent 发布的模块文档 |
+| `print_tree()` | 打印树形 Agent 结构 |
+| `load_history_messages(limit=30)` | 加载历史消息对象 |
+| `get_checkpoint_history(thread_id)` | 获取所有 Checkpoint 快照（时间旅行） |
+
+---
+
+#### `WorkerAgent` — 执行单元
+
+```python
+from agent_hive import WorkerAgent, BaseState, tools_list
+
+worker = WorkerAgent(
+    name="code-writer",
+    tools=tools_list,
+    system_prompt="你是一个代码编写助手",
+    depth=1,
+)
+worker.run("编写一个冒泡排序的 Python 实现")
+
+# 动态添加工具
+worker.add_tool(custom_tool)
+```
+
+`WorkerAgent` 继承 `BaseAgent`，拥有与 `MasterAgent` 相同的方法集（`run`、`chat`、`create_sub_agent` 等），并额外提供：
+
+| 方法 | 说明 |
+|------|------|
+| `add_tool(tool)` | 运行时动态添加工具并重新绑定 LLM |
+
+---
+
+#### `BaseAgent` — 自定义 Agent
+
+```python
+from agent_hive import BaseAgent, BaseState
+
+class MyCustomAgent(BaseAgent):
+    def __init__(self, tools, config=None):
+        super().__init__(
+            state=BaseState,
+            tools=tools,
+            system_prompt="你是一个自定义 Agent",
+            agent_type="custom",
+            depth=0,
+        )
+```
+
+---
+
+#### 工具系统
+
+```python
+from agent_hive import tools_list, get_tools
+
+# 内置工具（write_file + read_file）
+agent = MasterAgent(tools=tools_list)
+
+# 动态加载 MCP 远程工具
+all_tools = get_tools(mcp_servers_path=config.mcp_servers_path)
+agent = MasterAgent(tools=all_tools)
+```
+
+| API | 返回 | 说明 |
+|-----|------|------|
+| `tools_list` | `list[tool]` | 内置工具：`write_file`、`read_file` |
+| `get_tools(path)` | `list[tool]` | 内置工具 + 从 MCP 配置加载的远程工具 |
+
+---
+
+#### `MemoryManager` — 持久化层
+
+通常通过 `agent.memory` 间接访问，不直接实例化。核心方法：
+
+```python
+# 会话管理
+memory.create_session(agent_type="master")   # 创建会话，返回 session_id
+memory.list_sessions(limit=20)               # 列出活跃会话
+memory.archive_session(session_id)           # 归档会话
+
+# 消息
+memory.save_message(sid, "user", "你好")     # 存储消息
+memory.load_messages(sid, limit=60)          # 读取历史消息
+
+# 任务记录
+memory.save_task(sid, plan, results, ends)   # 存储任务执行记录
+memory.get_recent_tasks(limit=3)             # 读取最近任务
+
+# 文件变更追踪
+memory.record_file_change(sid, "a.py", "modify")
+memory.get_modified_files(sid)
+
+# 偏好
+memory.set_preference("language", "zh-CN")
+memory.get_preference("language", default="en")
+
+# Worker 注册表
+memory.register_worker(name="w1", session_id=sid, depth=1)
+memory.get_worker("w1")
+memory.get_all_workers()
+
+# 模块文档
+memory.publish_module_doc(agent_name="a1", ...)
+memory.search_module_docs(keyword="API")
+memory.get_all_module_docs_summary()
+```
+
+---
+
+### 完整示例
+
+```python
+"""演示 Agent Hive 的完整使用流程"""
+from agent_hive import MasterAgent, AgentConfig, tools_list
+
+# 1. 配置
+config = AgentConfig(llm_model="deepseek-chat")
+
+# 2. 初始化 Agent
+agent = MasterAgent(tools=tools_list, config=config)
+
+# 3. 单次执行
+messages = agent.run("创建一个 config.yaml 配置文件，包含数据库和日志设置")
+print(messages[-1].content)
+
+# 4. 交互模式
+# agent.chat()
+
+# 5. 查看 Agent 树形结构
+agent.print_tree()
+
+# 6. 发布模块文档（供其他 Agent 发现）
+agent.publish_module_doc(
+    title="配置模块接口",
+    content="config.yaml 包含 database.host / database.port / logging.level 等字段",
+    doc_type="interface",
+)
+
+# 7. 查询模块文档
+docs = agent.query_module_docs(keyword="配置")
+print(docs)
+```
 
 ---
 
