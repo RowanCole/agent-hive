@@ -63,7 +63,13 @@ pip install -r requirements.txt
 
 ### 配置
 
-在项目根目录创建 `.env` 文件：
+复制 `.env.example` 为 `.env` 并填入实际值：
+
+```bash
+cp .env.example .env
+```
+
+项目根目录的 `.env` 文件：
 
 ```env
 # 必填：LLM 配置（兼容 OpenAI / DeepSeek / 任意 OpenAI 兼容 API）
@@ -76,6 +82,8 @@ WORKER_AGENT_URL=https://worker-api-endpoint/v1
 WORKER_AGENT_KEY=your_worker_key_here
 WORKER_LLM_MODEL=worker-model-name
 ```
+
+> `.env` 已加入 `.gitignore`，不会提交到仓库。`.env.example` 作为配置模板供参考。
 
 ### 运行
 
